@@ -1,0 +1,18 @@
+# Local Python environment
+.venv/
+
+# Editor-generated files
+.vscode/
+
+# Python caches and test output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Generated build output
+build/
+install/
+log/
+*.egg-info/
