@@ -79,7 +79,7 @@ def main():
                     break
             else:
                 stable_since = None
-            if start_time >= data.time - stable_since:
+            if data.time - start_time >= timeout_duration:
                 exit_reason = '超时'
                 break
 
@@ -96,6 +96,7 @@ def main():
     print(f'实际角度:{actual_angle:.6f} rad')
     print(f'最终速度:{actual_velocity:.6f} rad/s')
     print(f'角度误差:{angle_error:.6f} rad')
+    print(f'结束原因:{exit_reason}')
 
 
 if __name__ == '__main__':
