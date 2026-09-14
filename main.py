@@ -1,28 +1,19 @@
 from pathlib import Path
+import time
 
 import mujoco
 import mujoco.viewer
-import time
 
 
-def main():
-    scene_path = Path(
-        "/home/yu/stretch_projects/stretch_mujoco/"
-        "stretch_mujoco/models/scene.xml"
-    )
-
-    if not scene_path.is_file():
-        raise FileNotFoundError(f'找不到场景文件:{scene_path}')
-
-    model = mujoco.MjModel.from_xml_path(str(scene_path))
-
-    print(f'场景文件:{scene_path}')
-    print(f'关节数量:{model.njnt}')
-    print(f'执行器数量:{model.nu}')
-
-    data = mujoco.MjData(model)
+def move_head_pan(model, data, target_angle):
     start_time = data.time
-    print(f'推进前时间:{start_time:.6f}s')
+
+    stable_since = None
+    exit_reason = '窗口提前关闭'
+    position_tolerance = 0.01
+    velocity_tolerance = 0.01
+    settle_duration = 0.2
+    timeout_duration = 5
 
     head_pan_actuator_id = mujoco.mj_name2id(
         model,
@@ -44,18 +35,7 @@ def main():
         head_pan_actuator_id
     ]
 
-    target_angle = 0.3
-
-    position_tolerance = 0.01
-    velocity_tolerance = 0.01
-    settle_duration = 0.2
-    timeout_duration = 5
-
-    stable_since = None
-    exit_reason = '窗口提前关闭'
-
     lower_limit, upper_limit = head_pan_ctrl_range
-
     if not (lower_limit <= target_angle <=upper_limit):
         raise ValueError(f'目标角度超出控制范围:{target_angle}')
 
@@ -85,18 +65,49 @@ def main():
 
             time.sleep(model.opt.timestep)
 
-    print(f'推进后时间:{data.time:.6f}s')
-
     joint_state = data.joint('joint_head_pan')
     actual_angle = joint_state.qpos[0]
     actual_velocity = joint_state.qvel[0]
     angle_error = actual_angle - target_angle
 
+    return{
+        'reason': exit_reason,
+        'elapsed_time': data.time - start_time,
+        'actual_angle': actual_angle,
+        'actual_velocity': actual_velocity,
+        'angle_error': angle_error
+    }
+
+def main():
+    scene_path = Path(
+            "/home/yu/stretch_projects/stretch_mujoco/"
+            "stretch_mujoco/models/scene.xml"
+        )
+    
+    if not scene_path.is_file():
+        raise FileNotFoundError(f'找不到场景文件:{scene_path}')
+
+    model = mujoco.MjModel.from_xml_path(str(scene_path))
+
+    data = mujoco.MjData(model)
+    start_time = data.time
+    print(f'推进前时间:{start_time:.6f}s')
+
+    target_angle = 0.3
+
+    result = move_head_pan(model, data, target_angle)
+
+    print(f'场景文件:{scene_path}')
+    print(f'关节数量:{model.njnt}')
+    print(f'执行器数量:{model.nu}')
     print(f'目标角度:{target_angle:.6f} rad')
-    print(f'实际角度:{actual_angle:.6f} rad')
-    print(f'最终速度:{actual_velocity:.6f} rad/s')
-    print(f'角度误差:{angle_error:.6f} rad')
-    print(f'结束原因:{exit_reason}')
+    print(f'实际角度:{result["actual_angle"]:.6f} rad')
+    print(f'最终速度:{result["actual_velocity"]:.6f} rad/s')
+    print(f'角度误差:{result["angle_error"]:.6f} rad')
+    print(f'结束原因:{result["reason"]}')
+    print(f'本次动作耗时:{result["elapsed_time"]:.6f}s')
+    print(f'推进后时间:{data.time:.6f}s')
+
 
 
 if __name__ == '__main__':
