@@ -46,6 +46,14 @@ def main():
 
     target_angle = 0.3
 
+    position_tolerance = 0.01
+    velocity_tolerance = 0.01
+    settle_duration = 0.2
+    timeout_duration = 5
+
+    stable_since = None
+    exit_reason = '窗口提前关闭'
+
     lower_limit, upper_limit = head_pan_ctrl_range
 
     if not (lower_limit <= target_angle <=upper_limit):
@@ -56,16 +64,37 @@ def main():
             data.ctrl[head_pan_actuator_id] = target_angle
             mujoco.mj_step(model, data)
             viewer.sync()
+
+            joint_state = data.joint('joint_head_pan')
+            actual_angle = joint_state.qpos[0]
+            actual_velocity = joint_state.qvel[0]
+            angle_error = actual_angle - target_angle
+
+            within_tolerance = abs(angle_error) < position_tolerance and abs(actual_velocity) < velocity_tolerance
+            if within_tolerance:
+                if stable_since is None:
+                    stable_since = data.time
+                if settle_duration <= data.time - stable_since:
+                    exit_reason = '到位并停稳'
+                    break
+            else:
+                stable_since = None
+            if start_time >= data.time - stable_since:
+                exit_reason = '超时'
+                break
+
             time.sleep(model.opt.timestep)
 
     print(f'推进后时间:{data.time:.6f}s')
 
     joint_state = data.joint('joint_head_pan')
     actual_angle = joint_state.qpos[0]
+    actual_velocity = joint_state.qvel[0]
     angle_error = actual_angle - target_angle
 
     print(f'目标角度:{target_angle:.6f} rad')
     print(f'实际角度:{actual_angle:.6f} rad')
+    print(f'最终速度:{actual_velocity:.6f} rad/s')
     print(f'角度误差:{angle_error:.6f} rad')
 
 
