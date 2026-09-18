@@ -21,6 +21,7 @@ def main():
     print(f'关节数量:{model.njnt}')
     print(f'执行器数量:{model.nu}')
     print(f'推进前时间:{start_time:.6f}s')
+    success_count = 0
 
     first_target = 1
     first_result = move_head_pan(model, data, first_target)
@@ -33,6 +34,7 @@ def main():
     print(f'本次动作耗时:{first_result["elapsed_time"]:.6f}s')
 
     if first_result["reason"] == '到位并停稳':
+        success_count = success_count + 1
         second_target = -1
         second_result = move_head_pan(model, data, second_target)
         print('第二次动作')
@@ -46,8 +48,27 @@ def main():
     else:
         print('第一次还没成功，不执行第二次')
 
-    print(f'推进后时间:{data.time:.6f}s')
+    if first_result["reason"] == '到位并停稳' and second_result["reason"] == '到位并停稳':
+        success_count = success_count + 1
+        thrid_target = 0
+        thrid_result = move_head_pan(model, data, thrid_target)
+        print('第三次动作')
+        print(f'目标角度:{thrid_target:.6f} rad')
+        print(f'实际角度:{thrid_result["actual_angle"]:.6f} rad')
+        print(f'最终速度:{thrid_result["actual_velocity"]:.6f} rad/s')
+        print(f'角度误差:{thrid_result["angle_error"]:.6f} rad')
+        print(f'结束原因:{thrid_result["reason"]}')
+        print(f'本次动作耗时:{thrid_result["elapsed_time"]:.6f}s')
 
+        if thrid_result["reason"] == '到位并停稳':
+            success_count = success_count + 1
+            print('全部成功')
+
+    else:
+        print('第一二次没成功，不执行第三次')
+
+    print(f'推进后时间:{data.time:.6f}s')
+    print(f'成功总数量:{success_count}')
 
 
 if __name__ == '__main__':
