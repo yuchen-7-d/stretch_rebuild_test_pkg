@@ -1,6 +1,29 @@
 import cv2 as cv
 import numpy as np
 
+
+def get_object_info(mask):
+    contours, hierarchy= cv.findContours(
+        mask,
+        cv.RETR_EXTERNAL,
+        cv.CHAIN_APPROX_SIMPLE
+    )
+
+    if not contours:
+        return None
+
+    target_contour = max(contours, key=cv.contourArea)
+
+    x, y, w, h = cv.boundingRect(target_contour)
+
+    center_x = x + w * 0.5
+    center_y = y + h * 0.5
+
+    return {
+        'bbox': (x, y, w, h),
+        'center': (center_x, center_y),
+    }
+
 image_read = cv.imread('/home/yu/stretch_rebuild/saved_picture/camera_rgb.png')
 
 if image_read is None:
@@ -42,3 +65,61 @@ print(f'红色掩膜形状:{red_mask.shape}')
 print(f'红色掩膜类型:{red_mask.dtype}')
 print(f'红色像素数量:{red_pixel_count}')
 print(f'红色是否保存成功:{saved_red}')
+
+blue_info = get_object_info(blue_mask)
+red_info = get_object_info(red_mask)
+
+annotated_image = image_read.copy()
+
+if blue_info is None:
+    print('未找到蓝色目标')
+else:
+    print(f"蓝色边框:{blue_info['bbox']}")
+    print(f"蓝色中心:{blue_info['center']}")
+    x, y, w, h = blue_info['bbox']
+    center_x, center_y = blue_info['center']
+    cv.rectangle(
+        annotated_image,
+        (x, y),
+        (x + w - 1, y + h - 1),
+        (0, 255, 0),
+        thickness=2
+    )
+    cv.circle(
+        annotated_image,
+        (round(center_x), round(center_y)),
+        radius=4,
+        color=(0, 255, 255),
+        thickness=-1
+    )
+
+if red_info is None:
+    print('未找到红色目标')
+else:
+    print(f"红色边框:{red_info['bbox']}")
+    print(f"红色中心:{red_info['center']}")
+    x, y, w, h = red_info['bbox']
+    center_x, center_y = red_info['center']
+    cv.rectangle(
+        annotated_image,
+        (x, y),
+        (x + w - 1, y + h - 1),
+        (0, 255, 0),
+        thickness=2
+    )
+    cv.circle(
+        annotated_image,
+        (round(center_x), round(center_y)),
+        radius=4,
+        color=(0, 255, 255),
+        thickness=-1
+    )
+
+detection_path = '/home/yu/stretch_rebuild/saved_picture/detection.png'
+saved_detection = cv.imwrite(str(detection_path), annotated_image)
+
+if not saved_detection:
+    raise RuntimeError(f'标注图片保存失败:{detection_path}')
+
+print(f'标注图片保存是否成功:{saved_detection}')
+print(f'保存至:{detection_path}')
