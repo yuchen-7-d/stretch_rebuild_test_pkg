@@ -1,5 +1,6 @@
 import cv2 as cv
 import numpy as np
+from pathlib import Path
 
 
 def get_object_info(mask):
@@ -28,6 +29,12 @@ image_read = cv.imread('/home/yu/stretch_rebuild/saved_picture/camera_rgb.png')
 
 if image_read is None:
     raise RuntimeError(f'未读取图片:{image_read}')
+
+camera_depth_path = Path('/home/yu/stretch_rebuild/saved_picture/camera_depth.npy')
+loaded_camera_depth = np.load(camera_depth_path)
+
+if loaded_camera_depth.shape[:2] != image_read.shape[:2]:
+    raise RuntimeError(f'{image_read.shape}尺寸不一致')
 
 hsv_image = cv.cvtColor(image_read, cv.COLOR_BGR2HSV)
 
@@ -78,6 +85,14 @@ else:
     print(f"蓝色中心:{blue_info['center']}")
     x, y, w, h = blue_info['bbox']
     center_x, center_y = blue_info['center']
+
+    pixel_x = round(center_x)
+    pixel_y = round(center_y)
+
+    blue_depth = loaded_camera_depth[pixel_y, pixel_x]
+    print(f'蓝色中心像素坐标:({pixel_x}, {pixel_y})')
+    print(f'蓝色中心深度:{blue_depth:.6f}m')
+
     cv.rectangle(
         annotated_image,
         (x, y),
@@ -100,6 +115,14 @@ else:
     print(f"红色中心:{red_info['center']}")
     x, y, w, h = red_info['bbox']
     center_x, center_y = red_info['center']
+
+    pixel_x = round(center_x)
+    pixel_y = round(center_y)
+
+    red_depth = loaded_camera_depth[pixel_y, pixel_x]
+    print(f'红色中心像素坐标:({pixel_x}, {pixel_y})')
+    print(f'红色中心深度:{red_depth:.6f}m')
+
     cv.rectangle(
         annotated_image,
         (x, y),
