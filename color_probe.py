@@ -112,6 +112,13 @@ else:
     print(f'蓝色中心像素坐标:({pixel_x}, {pixel_y})')
     print(f'蓝色中心深度:{blue_depth:.6f}m')
 
+    blue_camera_Z = blue_depth
+    blue_camera_X = ((pixel_x - cx) * blue_camera_Z) / fx
+    blue_camera_Y = ((pixel_y - cy) * blue_camera_Z) / fy
+    print(f'蓝色相机Z坐标:{blue_camera_Z:.6f}m')
+    print(f'蓝色相机X坐标:{blue_camera_X:.6f}m')
+    print(f'蓝色相机Y坐标:{blue_camera_Y:.6f}m')
+
     cv.rectangle(
         annotated_image,
         (x, y),
@@ -141,6 +148,13 @@ else:
     red_depth = loaded_camera_depth[pixel_y, pixel_x]
     print(f'红色中心像素坐标:({pixel_x}, {pixel_y})')
     print(f'红色中心深度:{red_depth:.6f}m')
+
+    red_camera_Z = red_depth
+    red_camera_X = ((pixel_x - cx) * red_camera_Z) / fx
+    red_camera_Y = ((pixel_y - cy) * red_camera_Z) / fy
+    print(f'红色相机Z坐标:{red_camera_Z:.6f}m')
+    print(f'红色相机X坐标:{red_camera_X:.6f}m')
+    print(f'红色相机Y坐标:{red_camera_Y:.6f}m')
 
     cv.rectangle(
         annotated_image,
