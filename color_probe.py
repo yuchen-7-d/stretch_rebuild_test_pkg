@@ -36,6 +36,25 @@ loaded_camera_depth = np.load(camera_depth_path)
 if loaded_camera_depth.shape[:2] != image_read.shape[:2]:
     raise RuntimeError(f'{image_read.shape}尺寸不一致')
 
+intrinsics_path = Path('/home/yu/stretch_rebuild/saved_picture/camera_intrinsics.npz')
+with np.load(intrinsics_path) as intrinsics:
+    fx = float(intrinsics['fx'])
+    fy = float(intrinsics['fy'])
+    cx = float(intrinsics['cx'])
+    cy = float(intrinsics['cy'])
+    intrinsics_width = int(intrinsics['width'])
+    intrinsics_height = int(intrinsics['height'])
+
+if(intrinsics_height, intrinsics_width) != image_read.shape[:2]:
+    raise RuntimeError('内参对应的图像尺寸与当前图片不一致')
+
+print(f'内参图像宽度:{intrinsics_width}')
+print(f'内参图像高度:{intrinsics_height}')
+print(f'读取fx:{fx:.6f}')
+print(f'读取fy:{fy:.6f}')
+print(f'读取cx:{cx:.6f}')
+print(f'读取cy:{cy:.6f}')
+
 hsv_image = cv.cvtColor(image_read, cv.COLOR_BGR2HSV)
 
 lower_blue = np.array([100, 80, 40], dtype=np.uint8)

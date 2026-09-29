@@ -55,6 +55,17 @@ def main():
     cx = (rgb_image_width - 1) / 2
     cy = (rgb_image_height - 1) / 2
 
+    intrinsics_path = Path('/home/yu/stretch_rebuild/saved_picture/camera_intrinsics.npz')
+    np.savez(
+        intrinsics_path,
+        fx= fx,
+        fy= fy,
+        cx= cx,
+        cy= cy,
+        height= rgb_image_height,
+        width= rgb_image_width
+    )
+
     depth_path = Path('/home/yu/stretch_rebuild/saved_picture/camera_depth.npy')
     np.save(depth_path, depth_image)
 
@@ -73,10 +84,11 @@ def main():
     print(f'图像宽度:{rgb_image_width}')
     print(f'图像高度:{rgb_image_height}')
     print(f'垂直视场角:{fovy_deg} deg')
-    print(f'fx:{fx}')
-    print(f'fy:{fy}')
-    print(f'cx:{cx}')
-    print(f'cy:{cy}')
+    print(f'fx:{fx:.6f}')
+    print(f'fy:{fy:.6f}')
+    print(f'cx:{cx:.6f}')
+    print(f'cy:{cy:.6f}')
+    print(f'相机内参保存至:{intrinsics_path}')
     print(f'保存状态:{image_saved}')
     print(f'保存至:{image_path}')
     print(f'深度图形状:{depth_image.shape}')
