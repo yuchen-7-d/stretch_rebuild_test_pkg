@@ -39,6 +39,15 @@ def main():
 
     mujoco.mj_forward(model, data)
 
+    camera_position = data.cam_xpos[d435i_camera_rgb_id].copy()
+    camera_rotation = data.cam_xmat[d435i_camera_rgb_id].reshape(3, 3).copy()
+    pose_path = Path('/home/yu/stretch_rebuild/saved_picture/camera_pose.npz')
+    np.savez(
+        pose_path,
+        position= camera_position,
+        rotation= camera_rotation
+    )
+
     with mujoco.Renderer(model, width=640, height=480) as renderer:
         renderer.update_scene(data, camera=d435i_camera_rgb_id)
         rgb_image = renderer.render()
@@ -89,6 +98,13 @@ def main():
     print(f'cx:{cx:.6f}')
     print(f'cy:{cy:.6f}')
     print(f'相机内参保存至:{intrinsics_path}')
+
+    print(f'相机位置:{camera_position}')
+    print(f'相机位置数组:{camera_position.shape}')
+    print(f'相机朝向:{camera_rotation}')
+    print(f'相机朝向数组:{camera_rotation.shape}')
+    print(f'相机位置朝向保存位置:{pose_path}')
+
     print(f'保存状态:{image_saved}')
     print(f'保存至:{image_path}')
     print(f'深度图形状:{depth_image.shape}')
@@ -96,6 +112,7 @@ def main():
     print(f'最小深度:{depth_image.min():.6f}m')
     print(f'最大深度:{depth_image.max():.6f}m')
     print(f'深度图保存路径:{depth_path}')
+
     print(f'加载深度图形状:{loaded_depth.shape}')
     print(f'加载深度图类型:{loaded_depth.dtype}')
     print(f'保存前后数组是否一致:{np.array_equal(loaded_depth, depth_image)}')

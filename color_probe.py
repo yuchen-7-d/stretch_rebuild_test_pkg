@@ -55,6 +55,16 @@ print(f'读取fy:{fy:.6f}')
 print(f'读取cx:{cx:.6f}')
 print(f'读取cy:{cy:.6f}')
 
+pose_path = Path('/home/yu/stretch_rebuild/saved_picture/camera_pose.npz')
+with np.load(pose_path) as pose:
+    position = pose['position']
+    rotation = pose['rotation']
+
+if position.shape != (3,):
+    raise RuntimeError('相机位置状态错误')
+if rotation.shape != (3, 3):
+    raise RuntimeError('相机角度状态错误')
+
 hsv_image = cv.cvtColor(image_read, cv.COLOR_BGR2HSV)
 
 lower_blue = np.array([100, 80, 40], dtype=np.uint8)
@@ -119,6 +129,15 @@ else:
     print(f'蓝色相机X坐标:{blue_camera_X:.6f}m')
     print(f'蓝色相机Y坐标:{blue_camera_Y:.6f}m')
 
+    blue_mujoco_point = np.array(
+        [blue_camera_X, -blue_camera_Y, -blue_camera_Z],
+        dtype=np.float64
+    )
+    blue_world_point = rotation @ blue_mujoco_point + position
+    print(f'蓝色相机mujoco坐标:{blue_mujoco_point}')
+    print(f'蓝色相机世界坐标:{blue_world_point}')
+    print(f'蓝色相机世界坐标形状:{blue_world_point.shape}')
+
     cv.rectangle(
         annotated_image,
         (x, y),
@@ -155,6 +174,15 @@ else:
     print(f'红色相机Z坐标:{red_camera_Z:.6f}m')
     print(f'红色相机X坐标:{red_camera_X:.6f}m')
     print(f'红色相机Y坐标:{red_camera_Y:.6f}m')
+
+    red_mujoco_point = np.array(
+        [red_camera_X, -red_camera_Y, -red_camera_Z],
+        dtype=np.float64
+    )
+    red_world_point = rotation @ red_mujoco_point + position
+    print(f'红色相机mujoco坐标:{red_mujoco_point}')
+    print(f'红色相机世界坐标:{red_world_point}')
+    print(f'红色相机世界坐标形状:{red_world_point.shape}')
 
     cv.rectangle(
         annotated_image,
