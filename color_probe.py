@@ -199,11 +199,37 @@ else:
         thickness=-1
     )
 
+if blue_info is None or red_info is None:
+    raise RuntimeError('目标不完整，无法保存两个世界坐标')
+target_points_path = Path(
+    '/home/yu/stretch_rebuild/saved_picture/target_points.npz'
+)
+np.savez(
+    target_points_path,
+    blue=blue_world_point,
+    red=red_world_point
+)
+print(f'世界坐标保存至:{target_points_path}')
+
+with np.load(target_points_path) as saved_points:
+    print(f'文件中的键:{saved_points.files}')
+    
+    loaded_blue_point = saved_points['blue']
+    loaded_red_point = saved_points['red']
+
+print(f'读回蓝色坐标形状:{loaded_blue_point.shape}')
+print(f'读回红色坐标形状:{loaded_red_point.shape}')
+
+blue_equal = np.array_equal(loaded_blue_point, blue_world_point)
+red_equal = np.array_equal(loaded_red_point, red_world_point)
+
+print(f'蓝色保存前后是否一致:{blue_equal}')
+print(f'红色保存前后是否一致:{red_equal}')
+
 detection_path = '/home/yu/stretch_rebuild/saved_picture/detection.png'
 saved_detection = cv.imwrite(str(detection_path), annotated_image)
 
 if not saved_detection:
     raise RuntimeError(f'标注图片保存失败:{detection_path}')
-
 print(f'标注图片保存是否成功:{saved_detection}')
 print(f'保存至:{detection_path}')
