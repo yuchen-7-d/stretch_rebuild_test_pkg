@@ -3,6 +3,7 @@ from pathlib import Path
 import mujoco
 import cv2 as cv
 import numpy as np
+import math
 
 
 def main():
@@ -44,6 +45,16 @@ def main():
         renderer.enable_depth_rendering()
         depth_image = renderer.render()
 
+    rgb_image_height = rgb_image.shape[0]
+    rgb_image_width = rgb_image.shape[1]
+    fovy_deg = model.cam_fovy[d435i_camera_rgb_id]
+    fovy_rad = np.deg2rad(fovy_deg)
+
+    fy = rgb_image_height / (2 * math.tan (fovy_rad/2))
+    fx = fy
+    cx = (rgb_image_width - 1) / 2
+    cy = (rgb_image_height - 1) / 2
+
     depth_path = Path('/home/yu/stretch_rebuild/saved_picture/camera_depth.npy')
     np.save(depth_path, depth_image)
 
@@ -59,6 +70,13 @@ def main():
 
     print(f'图像状态:{rgb_image.shape}')
     print(f'图像类型:{rgb_image.dtype}')
+    print(f'图像宽度:{rgb_image_width}')
+    print(f'图像高度:{rgb_image_height}')
+    print(f'垂直视场角:{fovy_deg} deg')
+    print(f'fx:{fx}')
+    print(f'fy:{fy}')
+    print(f'cx:{cx}')
+    print(f'cy:{cy}')
     print(f'保存状态:{image_saved}')
     print(f'保存至:{image_path}')
     print(f'深度图形状:{depth_image.shape}')
