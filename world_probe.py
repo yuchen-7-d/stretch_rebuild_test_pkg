@@ -29,6 +29,27 @@ def main():
 
     print(f'打开窗口时间:{data.time}')
     with mujoco.viewer.launch_passive(model, data) as windows:
+
+        with windows.lock():
+            mujoco.mjv_initGeom(
+                windows.user_scn.geoms[0],
+                type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                size=[0.005, 0, 0],
+                pos=blue,
+                mat=np.eye(3).flatten(),
+                rgba=[0, 1, 0, 1]
+            )
+            mujoco.mjv_initGeom(
+                windows.user_scn.geoms[1],
+                type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                size=[0.005, 0, 0],
+                pos=red,
+                mat=np.eye(3).flatten(),
+                rgba=[1, 1, 0, 1]
+            )
+
+            windows.user_scn.ngeom = 2
+
         while windows.is_running():
             windows.sync()
             time.sleep(0.01)
