@@ -172,9 +172,23 @@ def main():
     print(f'红色速度数组:{red_velocity}')
     print(f'红色速度数组形状:{red_velocity.shape}')
 
-
     if not settled:
         raise RuntimeError('等待物体停稳时，停止本次采集')
+
+    scene_path = Path('/home/yu/stretch_rebuild/saved_picture/scene_state.npz')
+    np.savez(
+        scene_path,
+        qpos=data.qpos.copy(),
+        qvel=data.qvel.copy(),
+        ctrl=data.ctrl.copy(),
+        time=data.time
+    )
+
+    print(f'状态文件路径:{scene_path}')
+    print(f'采集时刻:{data.time}')
+    print(f'位置数组形状:{data.qpos.shape}')
+    print(f'速度数组形状:{data.qvel.shape}')
+    print(f'控制数组形状:{data.ctrl.shape}')
 
     camera_position = data.cam_xpos[d435i_camera_rgb_id].copy()
     camera_rotation = data.cam_xmat[d435i_camera_rgb_id].reshape(3, 3).copy()

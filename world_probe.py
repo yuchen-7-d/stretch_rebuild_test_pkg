@@ -22,8 +22,20 @@ def main():
     model = mujoco.MjModel.from_xml_path(str(camera_probe_path))
     data = mujoco.MjData(model)
 
-    data.joint('joint_head_pan').qpos[0] = -1.57
-    data.joint('joint_head_tilt').qpos[0] = -0.9
+    scene_path = Path('/home/yu/stretch_rebuild/saved_picture/scene_state.npz')
+    with np.load(scene_path) as scene:
+        if scene['qpos'].shape != data.qpos[:].shape:
+            raise RuntimeError('qpos形状不匹配')
+        if scene['qvel'].shape != data.qvel[:].shape:
+            raise RuntimeError('qvel形状不匹配')
+        if scene['ctrl'].shape != data.ctrl[:].shape:
+            raise RuntimeError('ctrl形状不匹配')
+
+        data.qpos[:] = scene['qpos']
+        data.qvel[:] = scene['qvel']
+        data.ctrl[:] = scene['ctrl']
+        saved_time = scene['time']
+        data.time = float(saved_time)
 
     mujoco.mj_forward(model, data)
 
