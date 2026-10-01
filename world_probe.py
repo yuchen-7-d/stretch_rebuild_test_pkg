@@ -109,28 +109,6 @@ def main():
     print(f'升降关节控制范围:{lift_ctrlrange}')
     print(f'升降关节控制范围属性:{lift_ctrlrange.shape}')
 
-    lift_delta = 5 / 100
-    lift_goal = lift_delta + lift_postion
-    lift_lower = lift_ctrlrange[0]
-    lift_upper = lift_ctrlrange[1]
-
-    goal_in_range = lift_lower <= lift_goal <= lift_upper
-
-    if not goal_in_range:
-        raise RuntimeError(f'升降目标超出范围:{lift_goal}')
-
-    print(f'计划增加量:{lift_delta:.6f}m')
-    print(f'新升降目标:{lift_goal:.6f}m')
-    print(f'是否在控制范围内:{goal_in_range}')
-
-    motion_start_time = data.time
-    motion_duration = 2.0
-
-    lift_before = lift_postion
-    grasp_before = world_link.copy()
-
-    data.ctrl[lift_actuator_id] = lift_goal
-
     wrist_pitch_position = data.joint('joint_wrist_pitch').qpos[0]
     wrist_pitch_target = data.ctrl[wrist_pitch_id]
     wrist_pitch_ctrlrange = model.actuator_ctrlrange[wrist_pitch_id]
@@ -147,6 +125,20 @@ def main():
     print(f'手臂控制目标:{arm_target}')
     print(f'手臂控制范围:{arm_ctrlrange}')
     print(f'手臂实际伸长量:{actuator_arm_length}')
+
+    arm_before = actuator_arm_length
+    arm_delta = 0.02
+    arm_goal = actuator_arm_length + arm_delta
+
+    arm_in_range = arm_ctrlrange[0] <= arm_goal <= arm_ctrlrange[1]
+    if not arm_in_range:
+        raise RuntimeError(f'手臂目标超出范围:{arm_goal}')
+
+    arm_duration = 2.0
+    arm_tolerance = 0.001
+
+    lift_delta = 0.05
+    motion_duration = 2.0
 
 
     print(f'打开窗口时间:{data.time}')
@@ -172,6 +164,52 @@ def main():
 
             windows.user_scn.ngeom = 2
 
+        arm_start_time = data.time
+        data.ctrl[arm_id] = arm_goal
+
+        while(
+            windows.is_running()
+            and data.time - arm_start_time <arm_duration
+        ):
+            mujoco.mj_step(model, data)
+            windows.sync()
+            time.sleep(model.opt.timestep)
+
+        mujoco.mj_forward(model, data)
+
+        arm_after = data.actuator_length[arm_id]
+        arm_actual_delta = arm_after - actuator_arm_length
+        arm_error = arm_after - arm_goal
+        arm_elapsed = data.time - arm_start_time
+
+        print(f'手臂目标:{arm_goal}')
+        print(f'最终实际伸长量:{arm_after}')
+        print(f'实际增加量:{arm_actual_delta}')
+        print(f'目标误差:{arm_error}')
+        print(f'阶段耗时:{arm_elapsed}')
+
+        if not windows.is_running():
+            print('伸臂阶段窗口关闭，不执行升降')
+            return
+
+        if abs(arm_error) > arm_tolerance:
+            print('伸臂尚未到位，不执行伸降')
+            return
+
+        lift_before = data.joint('joint_lift').qpos[0]
+        grasp_before = data.xpos[link_grasp_center_id].copy()
+
+        lift_goal = lift_before + lift_delta
+        goal_in_range = lift_ctrlrange[0] <= lift_goal <= lift_ctrlrange[1]
+        if not goal_in_range:
+            raise RuntimeError(f'伸降目标超出范围:{lift_goal}')
+
+        print(f'升降起点:{lift_before}')
+        print(f'新伸降目标:{lift_goal}')
+
+        motion_start_time = data.time
+        data.ctrl[lift_actuator_id] = lift_goal
+
         while (
             windows.is_running()
             and data.time - motion_start_time < motion_duration
@@ -195,6 +233,14 @@ def main():
 
     lift_gain_params = model.actuator_gainprm[lift_actuator_id].copy()
     lift_bias_params = model.actuator_biasprm[lift_actuator_id].copy()
+
+    lift_force = data.actuator_force[lift_actuator_id].copy()
+    lift_forcerange = model.actuator_forcerange[lift_actuator_id].copy()
+    lift_forcelimit = model.actuator_forcelimited[lift_actuator_id].copy()
+
+    print(f'当前执行器输出力:{lift_force}')
+    print(f'执行器力范围:{lift_forcerange}')
+    print(f'是否启用力限制:{lift_forcelimit}')
 
     print(f'最终升降速度:{final_lift_speed:.6e} m/s')
     print(f'最终升降控制值:{after_lift_goal:.6f} m')
