@@ -78,11 +78,27 @@ def main():
         'lift'
     )
 
-    actuator_ids = {'lift':lift_actuator_id}
+    wrist_pitch_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_ACTUATOR,
+        'wrist_pitch'
+    )
+
+    arm_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_ACTUATOR,
+        'arm'
+    )
+
+    actuator_ids = {
+        'lift':lift_actuator_id,
+        'wrist_pitch':wrist_pitch_id,
+        'arm':arm_id
+    }
 
     for actuator_name,actuator_id in actuator_ids.items():
         if actuator_id == -1:
-            raise RuntimeError(f'找不到升降关节:{actuator_name}')
+            raise RuntimeError(f'找不到:{actuator_name}')
 
     lift_postion = data.joint('joint_lift').qpos[0]
     lift_target = data.ctrl[lift_actuator_id]
@@ -114,6 +130,24 @@ def main():
     grasp_before = world_link.copy()
 
     data.ctrl[lift_actuator_id] = lift_goal
+
+    wrist_pitch_position = data.joint('joint_wrist_pitch').qpos[0]
+    wrist_pitch_target = data.ctrl[wrist_pitch_id]
+    wrist_pitch_ctrlrange = model.actuator_ctrlrange[wrist_pitch_id]
+
+    print(f'手腕关节位置:{wrist_pitch_position}rad')
+    print(f'手腕控制目标:{wrist_pitch_target}rad')
+    print(f'手腕控制范围:{wrist_pitch_ctrlrange}')
+    print(f'手腕控制范围属性:{wrist_pitch_ctrlrange.shape}')
+
+    arm_target = data.ctrl[arm_id]
+    arm_ctrlrange = model.actuator_ctrlrange[arm_id]
+    actuator_arm_length = data.actuator_length[arm_id]
+
+    print(f'手臂控制目标:{arm_target}')
+    print(f'手臂控制范围:{arm_ctrlrange}')
+    print(f'手臂实际伸长量:{actuator_arm_length}')
+
 
     print(f'打开窗口时间:{data.time}')
     with mujoco.viewer.launch_passive(model, data) as windows:
