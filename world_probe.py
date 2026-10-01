@@ -100,6 +100,20 @@ def main():
         if actuator_id == -1:
             raise RuntimeError(f'找不到:{actuator_name}')
 
+    lift_joint_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_JOINT,
+        'joint_lift'
+    )
+
+    if lift_joint_id == -1:
+        raise RuntimeError('找不到升降关节')
+
+    lift_dof_id = model.jnt_dofadr[lift_joint_id]
+
+    print(f'升降关节ID:{lift_joint_id}')
+    print(f'升降自由度索引:{lift_dof_id}')
+
     lift_postion = data.joint('joint_lift').qpos[0]
     lift_target = data.ctrl[lift_actuator_id]
     lift_ctrlrange = model.actuator_ctrlrange[lift_actuator_id]
@@ -138,6 +152,7 @@ def main():
     arm_tolerance = 0.001
 
     lift_delta = 0.05
+    lift_commpensation = 0.011
     motion_duration = 2.0
 
 
@@ -204,11 +219,19 @@ def main():
         if not goal_in_range:
             raise RuntimeError(f'伸降目标超出范围:{lift_goal}')
 
+        lift_command = lift_goal + lift_commpensation
+
+        command_in_range = lift_ctrlrange[0] <= lift_command <= lift_ctrlrange[1]
+        if not command_in_range:
+            raise RuntimeError(f'升降控制命令超出范围:{lift_command}')
+
         print(f'升降起点:{lift_before}')
         print(f'新伸降目标:{lift_goal}')
+        print(f'升降补偿量:{lift_commpensation}')
+        print(f'下发升降命令:{lift_command}')
 
         motion_start_time = data.time
-        data.ctrl[lift_actuator_id] = lift_goal
+        data.ctrl[lift_actuator_id] = lift_command
 
         while (
             windows.is_running()
@@ -237,6 +260,16 @@ def main():
     lift_force = data.actuator_force[lift_actuator_id].copy()
     lift_forcerange = model.actuator_forcerange[lift_actuator_id].copy()
     lift_forcelimit = model.actuator_forcelimited[lift_actuator_id].copy()
+
+    lift_actuator_force = data.qfrc_actuator[lift_dof_id]
+    lift_bias_force = data.qfrc_bias[lift_dof_id]
+    lift_passive_force = data.qfrc_passive[lift_dof_id]
+    lift_constraint_force = data.qfrc_constraint[lift_dof_id]
+
+    print(f'升降自由度驱动力:{lift_actuator_force:.6f} N')
+    print(f'升降动力学偏置项:{lift_bias_force:.6f} N')
+    print(f'升降被动力:{lift_passive_force:.6f} N')
+    print(f'升降约束力:{lift_constraint_force:.6f} N')
 
     print(f'当前执行器输出力:{lift_force}')
     print(f'执行器力范围:{lift_forcerange}')
