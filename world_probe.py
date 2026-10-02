@@ -114,6 +114,15 @@ def main():
     print(f'升降关节ID:{lift_joint_id}')
     print(f'升降自由度索引:{lift_dof_id}')
 
+    arm_joint_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_JOINT,
+        'joint_arm_l0'
+    )
+
+    if arm_joint_id == -1:
+        raise RuntimeError('找不到伸缩关节')
+
     lift_postion = data.joint('joint_lift').qpos[0]
     lift_target = data.ctrl[lift_actuator_id]
     lift_ctrlrange = model.actuator_ctrlrange[lift_actuator_id]
@@ -153,8 +162,9 @@ def main():
 
     lift_delta = 0.05
     lift_commpensation = 0.011
-    motion_duration = 2.0
+    motion_duration = 3.0
 
+    pregrasp_margin = 0.05
 
     print(f'打开窗口时间:{data.time}')
     with mujoco.viewer.launch_passive(model, data) as windows:
@@ -184,7 +194,7 @@ def main():
 
         while(
             windows.is_running()
-            and data.time - arm_start_time <arm_duration
+            and data.time - arm_start_time < arm_duration
         ):
             mujoco.mj_step(model, data)
             windows.sync()
@@ -214,7 +224,28 @@ def main():
         lift_before = data.joint('joint_lift').qpos[0]
         grasp_before = data.xpos[link_grasp_center_id].copy()
 
-        lift_goal = lift_before + lift_delta
+        blue_z = blue[2]
+        current_grasp_z = grasp_before[2]
+
+        pregrasp_z = blue_z + pregrasp_margin
+        height_gap = pregrasp_z - current_grasp_z
+
+        candidate_lift_goal = lift_before + height_gap
+        candidate_lift_command = candidate_lift_goal + lift_commpensation
+
+        candidate_goal_in_range = lift_ctrlrange[0] <= candidate_lift_goal <= lift_ctrlrange[1]
+        candidate_command_in_range = lift_ctrlrange[0] <= candidate_lift_command <= lift_ctrlrange[1]
+
+        print(f'蓝色视觉点高度:{blue_z:.6f} m')
+        print(f'准备高度:{pregrasp_z:.6f} m')
+        print(f'当前夹爪高度:{current_grasp_z:.6f} m')
+        print(f'需要增加的高度:{height_gap:.6f} m')
+        print(f'候选升降目标:{candidate_lift_goal:.6f} m')
+        print(f'候选控制命令:{candidate_lift_command:.6f} m')
+        print(f'候选目标是否在范围内:{candidate_goal_in_range}')
+        print(f'候选命令是否在范围内:{candidate_command_in_range}')
+
+        lift_goal = candidate_lift_goal
         goal_in_range = lift_ctrlrange[0] <= lift_goal <= lift_ctrlrange[1]
         if not goal_in_range:
             raise RuntimeError(f'伸降目标超出范围:{lift_goal}')
@@ -243,8 +274,51 @@ def main():
 
     mujoco.mj_forward(model, data)
 
+    xaxis_arm_joint = data.xaxis[arm_joint_id].copy()
+    arm_joint_distance = np.linalg.norm(xaxis_arm_joint)
+    arm_axis_xy = xaxis_arm_joint[:2]
+
+    print(f'伸缩臂世界方向:{xaxis_arm_joint}')
+    print(f'方向数组形状:{xaxis_arm_joint.shape}')
+    print(f'方向向量长度:{arm_joint_distance}')
+
     lift_after = data.joint('joint_lift').qpos[0]
     grasp_after = data.xpos[link_grasp_center_id].copy()
+
+    remaining_offset = blue - grasp_after
+    horizontal_offset = remaining_offset[:2]
+    horizontal_distance = np.linalg.norm(horizontal_offset)
+
+    projection = np.dot(horizontal_offset, arm_axis_xy)
+    axis_xy_squared = np.dot(arm_axis_xy, arm_axis_xy)
+
+    if axis_xy_squared < 1e-12:
+        raise RuntimeError('伸臂方向的水平分量过小，无法计算')
+
+    planned_arm_delta = projection / axis_xy_squared
+    projected_horizontal_move = planned_arm_delta * arm_axis_xy
+    residual_horizontal_offset = horizontal_offset - projected_horizontal_move
+    residual_horizontal_distance = np.linalg.norm(residual_horizontal_offset)
+
+    print(f'水平伸臂方向:{arm_axis_xy}')
+    print(f'水平伸臂方向形状:{arm_axis_xy.shape}')
+    print(f'计划伸臂增加量:{planned_arm_delta:.6f}m')
+    print(f'预计水平位移:{projected_horizontal_move}m')
+    print(f'预计剩余水平偏差:{residual_horizontal_offset}m')
+    print(f'预计剩余水平距离:{residual_horizontal_distance:.6f}m')
+
+    print(f'最终夹爪世界坐标:{grasp_after}')
+    print(f'到蓝色目标的三维位移:{remaining_offset}')
+    print(f'三维位移形状;{remaining_offset.shape}')
+    print(f'水平位移:{horizontal_offset}m')
+    print(f'水平位移形状:{horizontal_offset.shape}')
+    print(f'水平距离:{horizontal_distance:.6f}m')
+
+    final_lift_height = grasp_after[2]
+    lift_height_error = final_lift_height - pregrasp_z
+
+    print(f'最终爪高度:{final_lift_height}')
+    print(f'高度误差:{lift_height_error}')
 
     motion_elapsed = data.time - motion_start_time
     lift_actual_delta = lift_after - lift_before
