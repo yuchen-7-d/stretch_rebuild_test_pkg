@@ -45,11 +45,20 @@ def main():
         'link_grasp_center'
     )
 
-    link_ids = {'link_grasp_center':link_grasp_center_id}
+    base_body_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_BODY,
+        'base_link'
+    )
+
+    link_ids = {
+        'link_grasp_center':link_grasp_center_id,
+        'base_link':base_body_id
+    }
 
     for link_name,link_id in link_ids.items():
         if link_id == -1:
-            raise RuntimeError(f'找不到参考点:{link_name}')
+            raise RuntimeError(f'找不到:{link_name}')
 
     world_link = data.xpos[link_grasp_center_id].copy()
 
@@ -431,6 +440,39 @@ def main():
         print(f'预计剩余水平距离:{residual_horizontal_distance:.6f}m')
         print(f'实际剩余水平距离:{approach_remaining_distance:.6f}m')
         print(f'接近后的高度误差:{approach_height_error:.6f}m')
+
+        base_rotation = data.xmat[base_body_id].reshape(3, 3).copy()
+        base_forward_world = base_rotation[:,0].copy()
+        base_forward_length = np.linalg.norm(base_forward_world)
+
+        print(f'底座ID:{base_body_id}')
+        print(f'底座朝向矩阵形状:{base_rotation.shape}')
+        print(f'底座朝向世界方向:{base_forward_world}')
+        print(f'方向数组形状:{base_forward_world.shape}')
+        print(f'方向向量长度:{base_forward_length}')
+
+        base_forward_xy = base_forward_world[:2].copy()
+        base_forward_xy_norm = np.linalg.norm(base_forward_xy)
+
+        if base_forward_xy_norm < 1e-12:
+            raise RuntimeError('底座水平朝前方向长度过小')
+
+        base_unit_xy = base_forward_xy / base_forward_xy_norm
+
+        planned_base_distance = np.dot(base_unit_xy, approach_remaining_xy)
+
+        base_predicted_xy_move = planned_base_distance * base_unit_xy
+
+        base_remaining_xy = approach_remaining_xy - base_predicted_xy_move
+        base_remaining_distance = np.linalg.norm(base_remaining_xy)
+
+        print(f'底座水平单位方向:{base_unit_xy}')
+        print(f'水平单位方向形状:{base_unit_xy.shape}')
+        print(f'水平单位方向长度:{np.linalg.norm(base_unit_xy):.6f}')
+        print(f'计划底座移动距离:{planned_base_distance:.6f}m')
+        print(f'底座预计水平位移:{base_predicted_xy_move}m')
+        print(f'底座移动后预计剩余偏差:{base_remaining_xy}m')
+        print(f'底座移动后预计剩余距离:{base_remaining_distance:.6f}m')
 
     print(f'关闭窗口时间:{data.time}')
     print(f'蓝色坐标:{blue}')
