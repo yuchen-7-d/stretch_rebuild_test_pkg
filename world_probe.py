@@ -595,6 +595,86 @@ def main():
         print(f'下发停车命令前前进距离:{base_traveled:.6f}m')
         print(f'下发停车命令时的剩余距离:{base_remaining:.6f}m')
 
+        base_velocity = np.zeros(6, dtype=np.float64)
+
+        base_linear_tol = 0.001
+        base_angular_tol = 0.01
+        base_stable_duration = 0.2
+        base_settle_timeout = 2.0
+
+        base_settle_start = data.time
+        base_stable_since = None
+        base_settled = False
+        base_settle_reason = '未开始'
+
+        while True:
+            mujoco.mj_forward(model,data)
+
+            mujoco.mj_objectVelocity(
+                model,
+                data,
+                mujoco.mjtObj.mjOBJ_BODY,
+                base_body_id,
+                base_velocity,
+                0
+            )
+
+            base_angular_speed = np.linalg.norm(base_velocity[:3])
+            base_linear_speed = np.linalg.norm(base_velocity[3:])
+            base_settle_elapsed = data.time - base_settle_start
+
+            if not windows.is_running():
+                base_settle_reason = '窗口提前关闭'
+                break
+
+            base_slow = (
+                base_linear_speed < base_linear_tol
+                and base_angular_speed < base_angular_tol
+            )
+
+            if base_slow:
+                if base_stable_since is None:
+                    base_stable_since = data.time
+
+                if data.time - base_stable_since >= base_stable_duration:
+                    base_settled = True
+                    base_settle_reason = '连续低速达到要求'
+                    break
+
+            else:
+                base_stable_since = None
+
+            if base_settle_elapsed >= base_settle_timeout:
+                base_settle_reason = '等待超时'
+                break
+
+            mujoco.mj_step(model,data)
+            windows.sync()
+            time.sleep(model.opt.timestep)
+
+        print(f'底座停稳是否通过:{base_settled}')
+        print(f'停稳检查结束原因:{base_settle_reason}')
+        print(f'停稳等待耗时:{base_settle_elapsed:.6f}s')
+        print(f'底盘最终线速度:{base_linear_speed:.6e}m/s')
+        print(f'底盘最终角速度:{base_angular_speed:.6e}rad/s')
+        print(f'左轮最终控制值:{data.ctrl[left_wheel_id]}')
+        print(f'右轮最终控制值:{data.ctrl[right_wheel_id]}')
+
+        if not base_settled:
+            print('底座未确认停稳，本阶段尚未通过')
+            return
+
+        grasp_after_stop = data.xpos[link_grasp_center_id].copy()
+
+        finnal_horizontal_offset = blue[:2] - grasp_after_stop[:2]
+        finnal_horizontal_distance = np.linalg.norm(finnal_horizontal_offset)
+        finnal_height_error = grasp_after_stop[2] - pregrasp_z
+
+        print(f'停稳后夹爪世界坐标:{grasp_after_stop}')
+        print(f'停稳后夹爪水平偏差:{finnal_horizontal_offset}m')
+        print(f'停稳后夹爪水平距离:{finnal_horizontal_distance:.6f}m')
+        print(f'停稳后夹爪高度误差:{finnal_height_error:.6f}m')
+
     print(f'关闭窗口时间:{data.time}')
     print(f'蓝色坐标:{blue}')
     print(f'红色坐标:{red}')
