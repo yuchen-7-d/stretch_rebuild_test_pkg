@@ -51,9 +51,23 @@ def main():
         'base_link'
     )
 
+    left_rubber_tip_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_BODY,
+        'rubber_tip_left'
+    )
+
+    right_rubber_tip_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_BODY,
+        'rubber_tip_right'
+    )
+
     link_ids = {
         'link_grasp_center':link_grasp_center_id,
-        'base_link':base_body_id
+        'base_link':base_body_id,
+        'rubber_tip_left':left_rubber_tip_id,
+        'rubber_tip_right':right_rubber_tip_id
     }
 
     for link_name,link_id in link_ids.items():
@@ -111,12 +125,19 @@ def main():
         'right_wheel_vel'
     )
 
+    gripper_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_ACTUATOR,
+        'gripper'
+    )
+
     actuator_ids = {
         'lift':lift_actuator_id,
         'wrist_pitch':wrist_pitch_id,
         'arm':arm_id,
         'left_wheel_vel':left_wheel_id,
         'right_wheel_vel':right_wheel_id,
+        'gripper':gripper_id
     }
 
     for actuator_name,actuator_id in actuator_ids.items():
@@ -674,6 +695,197 @@ def main():
         print(f'停稳后夹爪水平偏差:{finnal_horizontal_offset}m')
         print(f'停稳后夹爪水平距离:{finnal_horizontal_distance:.6f}m')
         print(f'停稳后夹爪高度误差:{finnal_height_error:.6f}m')
+
+        glignment_ready = (
+            base_exit_reason == '达到停车阀值'
+            and base_settled
+            and finnal_horizontal_distance < 0.005
+            and abs(finnal_height_error) < 0.005
+        )
+
+        print(f'抓取准备位置是否验收通过{glignment_ready}')
+
+        if not glignment_ready:
+            print('未准备好抓取，不动作夹爪')
+            return
+
+        gripper_ctrl = data.ctrl[gripper_id]
+        gripper_ctrlrange = model.actuator_ctrlrange[gripper_id]
+        gripper_position = data.joint('joint_gripper_slide').qpos[0]
+
+        print(f'夹爪执行器ID:{gripper_id}')
+        print(f'夹爪当前控制目标:{gripper_ctrl:.6f}m')
+        print(f'夹爪控制范围:{gripper_ctrlrange}')
+        print(f'夹爪控制范围形状:{gripper_ctrlrange.shape}')
+        print(f'夹爪实际滑动位置:{gripper_position:.6f}m')
+
+        if not windows.is_running():
+            print('窗口已关闭，不执行夹爪试探动作')
+            return
+
+        mujoco.mj_forward(model,data)
+
+        left_tip_before = data.xpos[left_rubber_tip_id].copy()
+        right_tip_before = data.xpos[right_rubber_tip_id].copy()
+        tip_distance_before = np.linalg.norm(left_tip_before - right_tip_before)
+
+        gripper_before = data.joint('joint_gripper_slide').qpos[0]
+        gripper_delta = 0.01
+        gripper_goal = gripper_before + gripper_delta
+
+        gripper_in_range = (
+            gripper_ctrlrange[0] <= gripper_goal <= gripper_ctrlrange[1] 
+        )
+
+        if not gripper_in_range:
+            raise RuntimeError('夹爪试探目标超出控制范围')
+
+        gripper_duration = 1.0
+        gripper_start_time = data.time
+
+        data.ctrl[gripper_id] = gripper_goal
+
+        while(
+            windows.is_running()
+            and data.time - gripper_start_time < gripper_duration
+        ):
+            mujoco.mj_step(model, data)
+            windows.sync()
+            time.sleep(model.opt.timestep)
+
+        if windows.is_running():
+            gripper_exit_reason = '阶段计时结束'
+        else:
+            gripper_exit_reason = '窗口提前关闭'
+
+        mujoco.mj_forward(model,data)
+        gripper_after = data.joint('joint_gripper_slide').qpos[0]
+
+        left_tip_after = data.xpos[left_rubber_tip_id].copy()
+        right_tip_after = data.xpos[right_rubber_tip_id].copy()
+        tip_distance_after = np.linalg.norm(left_tip_after - right_tip_after)
+
+        gripper_error = gripper_after - gripper_goal
+        tip_distance_delta = tip_distance_after - tip_distance_before
+        gripper_elapsed = data.time - gripper_start_time
+
+        print(f'夹爪动作结束原因:{gripper_exit_reason}')
+        print(f'夹爪动作耗时:{gripper_elapsed:.6f}s')
+        print(f'夹爪动作目标:{gripper_goal:.6f}m')
+        print(f'夹爪最终实际位置:{gripper_after:.6f}m')
+        print(f'夹爪目标误差:{gripper_error:.6f}m')
+        print(f'动作前指尖参考点间距:{tip_distance_before:.6f}m')
+        print(f'动作后指尖参考点间距:{tip_distance_after:.6f}m')
+        print(f'间距变化量:{tip_distance_delta:.6f}m')
+
+        tip_midpoint = (left_tip_after + right_tip_after) / 2
+
+        grasp_reference_now = data.xpos[link_grasp_center_id].copy()
+
+        tip_midpoint_offset = tip_midpoint - grasp_reference_now
+
+        tip_height_above_blue = tip_midpoint[2] - blue[2]
+
+        print(f'张开口左指参考点:{left_tip_after}')
+        print(f'张开口右指参考点:{right_tip_after}')
+        print(f'两指间参考中点:{tip_midpoint}')
+        print(f'中点形状:{tip_midpoint.shape}')
+        print(f'中点相对夹爪参考点的偏移:{tip_midpoint_offset}')
+        print(f'中点高出蓝色视觉点:{tip_height_above_blue}')
+
+        fine_offset_xy = blue[:2] - tip_midpoint[:2]
+
+        fine_axis_xy = data.xaxis[arm_joint_id][:2].copy()
+        fine_axis_squared = np.dot(fine_axis_xy, fine_axis_xy)
+
+        if fine_axis_squared < 1e-12:
+            raise RuntimeError('伸臂方向的水平分量过小')
+
+        fine_arm_delta = (
+            np.dot(fine_axis_xy, fine_offset_xy) / fine_axis_squared
+        )
+
+        fine_predicted_xy_move = fine_axis_xy * fine_arm_delta
+        fine_remaining_xy = fine_offset_xy - fine_predicted_xy_move
+        fine_remaining_distance = np.linalg.norm(fine_remaining_xy)
+
+        fine_arm_start = data.actuator_length[arm_id]
+        fine_arm_goal = fine_arm_start + fine_arm_delta
+
+        fine_arm_in_range = (
+            arm_ctrlrange[0] <= fine_arm_goal <= arm_ctrlrange[1]
+        )
+
+        if not fine_arm_in_range:
+            raise RuntimeError('伸臂微调目标超出控制范围')
+
+        print(f'指尖中点到目标的水平偏差:{fine_offset_xy}m')
+        print(f'当前伸臂水平轴向:{fine_axis_xy}')
+        print(f'微调前实际伸长量:{fine_arm_start:.6f}m')
+        print(f'计划微调增加量:{fine_arm_delta:.6f}m')
+        print(f'微调后的手臂目标:{fine_arm_goal:.6f}m')
+        print(f'目标是否在控制范围内:{fine_arm_in_range}')
+        print(f'预计微调后剩余水平距离:{fine_remaining_distance:.6f}m')
+
+        if not windows.is_running():
+            print('窗口已关闭，不执行伸臂微调')
+            return
+
+        gripper_ready = (
+            gripper_exit_reason == '阶段计时结束'
+            and abs(gripper_error) < 0.001
+        )
+
+        if not gripper_ready:
+            print('夹爪试探动作未达标，不执行伸臂微调')
+            return
+
+        fine_midpoint_before = tip_midpoint.copy()
+
+        fine_duration = 2.0
+        fine_start_time = data.time
+
+        data.ctrl[arm_id] = fine_arm_goal
+
+        while(
+            windows.is_running()
+            and data.time - fine_start_time < fine_duration
+        ):
+            mujoco.mj_step(model, data)
+            windows.sync()
+            time.sleep(model.opt.timestep)
+
+        if windows.is_running():
+            fine_exit_reason = '阶段计时结束'
+        else:
+            fine_exit_reason = '窗口提前关闭'
+
+        mujoco.mj_forward(model,data)
+
+        fine_arm_after = data.actuator_length[arm_id]
+
+        fine_left_tip_after = data.xpos[left_rubber_tip_id].copy()
+        fine_right_tip_after = data.xpos[right_rubber_tip_id].copy()
+        fine_midpoint_after = (fine_left_tip_after + fine_right_tip_after) / 2
+
+        fine_actual_delta = fine_arm_after - fine_arm_start
+        fine_arm_error = fine_arm_after - fine_arm_goal
+
+        fine_actual_remaining_xy = blue[:2] - fine_midpoint_after[:2]
+        fine_actual_remaining_distance = np.linalg.norm(fine_actual_remaining_xy)
+
+        fine_height_change = fine_midpoint_after[2] - fine_midpoint_before[2]
+        fine_elapsed = data.time - fine_start_time
+
+        print(f'伸臂微调结束原因:{fine_exit_reason}')
+        print(f'伸臂微调耗时:{fine_elapsed}')
+        print(f'微调后实际伸长量:{fine_arm_after}')
+        print(f'实际伸臂增加量:{fine_actual_delta}')
+        print(f'手臂目标误差:{fine_arm_error:.6f}')
+        print(f'微调后指尖中点:{fine_midpoint_after}')
+        print(f'微调后实际水平偏差:{fine_actual_remaining_xy}')
+        print(f'微调后实际水平距离:{fine_actual_remaining_distance}')
+        print(f'微调期间中点高度变化:{fine_height_change}')
 
     print(f'关闭窗口时间:{data.time}')
     print(f'蓝色坐标:{blue}')
