@@ -99,10 +99,24 @@ def main():
         'arm'
     )
 
+    left_wheel_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_ACTUATOR,
+        'left_wheel_vel'
+    )
+
+    right_wheel_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_ACTUATOR,
+        'right_wheel_vel'
+    )
+
     actuator_ids = {
         'lift':lift_actuator_id,
         'wrist_pitch':wrist_pitch_id,
-        'arm':arm_id
+        'arm':arm_id,
+        'left_wheel_vel':left_wheel_id,
+        'right_wheel_vel':right_wheel_id,
     }
 
     for actuator_name,actuator_id in actuator_ids.items():
@@ -158,7 +172,6 @@ def main():
     print(f'手臂控制范围:{arm_ctrlrange}')
     print(f'手臂实际伸长量:{actuator_arm_length}')
 
-    arm_before = actuator_arm_length
     arm_delta = 0.02
     arm_goal = actuator_arm_length + arm_delta
 
@@ -169,11 +182,29 @@ def main():
     arm_duration = 2.0
     arm_tolerance = 0.001
 
-    lift_delta = 0.05
     lift_commpensation = 0.011
     motion_duration = 3.0
 
     pregrasp_margin = 0.05
+
+    left_wheel_ctrl = data.ctrl[left_wheel_id]
+    left_wheel_ctrlrange = model.actuator_ctrlrange[left_wheel_id]
+    left_wheel_gear = model.actuator_gear[left_wheel_id]
+
+    right_wheel_ctrl = data.ctrl[right_wheel_id]
+    right_wheel_ctrlrange = model.actuator_ctrlrange[right_wheel_id]
+    right_wheel_gear = model.actuator_gear[right_wheel_id]
+
+    print(f'左轮ID:{left_wheel_id}')
+    print(f'左轮控制值:{left_wheel_ctrl}')
+    print(f'左轮控制值属性:{left_wheel_ctrl.shape}')
+    print(f'左轮控制范围:{left_wheel_ctrlrange}')
+    print(f'左轮传动参数:{left_wheel_gear}')
+    print(f'右轮ID:{right_wheel_id}')
+    print(f'右轮控制值:{right_wheel_ctrl}')
+    print(f'右轮控制值属性:{right_wheel_ctrl.shape}')
+    print(f'右轮控制范围:{right_wheel_ctrlrange}')
+    print(f'右轮传动参数:{right_wheel_gear}')
 
     print(f'打开窗口时间:{data.time}')
     with mujoco.viewer.launch_passive(model, data) as windows:
@@ -473,6 +504,96 @@ def main():
         print(f'底座预计水平位移:{base_predicted_xy_move}m')
         print(f'底座移动后预计剩余偏差:{base_remaining_xy}m')
         print(f'底座移动后预计剩余距离:{base_remaining_distance:.6f}m')
+
+        base_speed = 0.02
+        wheel_radius = 0.05
+
+        wheel_angular_speed = base_speed / wheel_radius
+
+        left_wheel_command = left_wheel_gear[0] * wheel_angular_speed
+        right_wheel_command = right_wheel_gear[0] * wheel_angular_speed
+
+        left_command_in_range = (
+            left_wheel_ctrlrange[0] <= left_wheel_command <= left_wheel_ctrlrange[1]
+        )
+        if not left_command_in_range:
+            raise RuntimeError('左轮命令超出范围')
+        right_command_in_range = (
+            right_wheel_ctrlrange[0] <= right_wheel_command <= right_wheel_ctrlrange[1]
+        )
+        if not right_command_in_range:
+            raise RuntimeError('右轮命令超出范围')
+
+        print(f'底座速度目标:{base_speed:.6f} m/s')
+        print(f'车轮角速度目标:{wheel_angular_speed:.6f} rad/s')
+        print(f'左轮控制命令:{left_wheel_command:.6f}')
+        print(f'右轮控制命令:{right_wheel_command:.6f}')
+        print(f'左轮命令是否在范围内:{left_command_in_range}')
+        print(f'右轮命令是否在范围内:{right_command_in_range}')
+
+        if not windows.is_running():
+            print('窗口已关闭，不执行底座移动')
+            return
+
+        approach_ready = (
+            abs(approach_arm_error) < 0.001
+            and abs(approach_height_error) < 0.005
+        )
+
+        if not approach_ready:
+            print('接近阶段还没准备好，不移动')
+            return
+
+        if planned_base_distance < 0:
+            raise RuntimeError('本阶段尚未处理倒车目标')
+
+        base_tolerance = 0.001
+        base_timeout = 5.0
+
+        mujoco.mj_forward(model,data)
+
+        base_start_xy = data.xpos[base_body_id][:2].copy()
+        base_start_time = data.time
+
+        base_exit_reason = '未开始'
+
+        try:
+            while True:
+                mujoco.mj_forward(model, data)
+                base_current_xy = data.xpos[base_body_id][:2].copy()
+
+                base_actual_xy_move = base_current_xy - base_start_xy
+                base_traveled = np.dot(base_actual_xy_move, base_unit_xy)
+                base_remaining = planned_base_distance - base_traveled
+                base_elapsed = data.time - base_start_time
+
+                if not windows.is_running():
+                    base_exit_reason = '窗口提前关闭'
+                    break
+
+                if base_remaining <= base_tolerance:
+                    base_exit_reason = '达到停车阀值'
+                    break
+
+                if base_elapsed >= base_timeout:
+                    base_exit_reason = '超时'
+                    break
+
+                data.ctrl[left_wheel_id] = left_wheel_command
+                data.ctrl[right_wheel_id] = right_wheel_command
+
+                mujoco.mj_step(model, data)
+                windows.sync()
+                time.sleep(model.opt.timestep)
+
+        finally:
+            data.ctrl[left_wheel_id] = 0.0
+            data.ctrl[right_wheel_id] = 0.0
+
+        print(f'底盘前进阶段结束原因:{base_exit_reason}')
+        print(f'底盘前进耗时:{base_elapsed:.6f}s')
+        print(f'下发停车命令前前进距离:{base_traveled:.6f}m')
+        print(f'下发停车命令时的剩余距离:{base_remaining:.6f}m')
 
     print(f'关闭窗口时间:{data.time}')
     print(f'蓝色坐标:{blue}')
