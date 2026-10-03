@@ -887,6 +887,112 @@ def main():
         print(f'微调后实际水平距离:{fine_actual_remaining_distance}')
         print(f'微调期间中点高度变化:{fine_height_change}')
 
+        grasp_depth = 0.02
+        grasp_midpoint_z =blue[2] - grasp_depth
+
+        descend_midpoint_start_z = fine_midpoint_after[2]
+        descend_delta_z = grasp_midpoint_z - descend_midpoint_start_z
+
+        descend_lift_start = data.joint('joint_lift').qpos[0]
+
+        descend_lift_goal = descend_lift_start + descend_delta_z
+        down_lift_compensation = 0.0038
+        descend_lift_command = descend_lift_goal + down_lift_compensation
+
+        descend_goal_in_range = (
+            lift_ctrlrange[0] <= descend_lift_goal <= lift_ctrlrange[1]
+        )
+
+        if not descend_goal_in_range:
+            raise RuntimeError('候选升降目标不在范围内')
+
+        descend_command_in_range = (
+            lift_ctrlrange[0] <= descend_lift_command <= lift_ctrlrange[1]
+        )
+
+        if not descend_command_in_range:
+            raise RuntimeError('候选升降命令不再范围内')
+
+        print(f'目标中点高度:{grasp_midpoint_z:.6f}m')
+        print(f'当前中点高度:{descend_midpoint_start_z:.6f}m')
+        print(f'计划高度变化:{descend_delta_z:.6f}m')
+        print(f'下降前升降位置:{descend_lift_start:.6f}m')
+        print(f'候选升降目标:{descend_lift_goal:.6f}m')
+        print(f'候选升降命令:{descend_lift_command:.6f}m')
+        print(f'候选升降目标是否在范围内:{descend_goal_in_range}')
+        print(f'候选升降命令是否在范围内:{descend_command_in_range}')
+
+        if not windows.is_running():
+            print('窗口已关闭，不执行下降任务')
+            return
+
+        fine_arm_ready = (
+            fine_exit_reason == '阶段计时结束'
+            and abs(fine_arm_error) < 0.001
+            and fine_actual_remaining_distance < 0.005
+            and abs(fine_height_change) < 0.005
+        )
+
+        if not fine_arm_ready:
+            print('伸臂微调未结束，不执行下降命令')
+            return
+
+        down_duration = 3.0
+        down_start_time = data.time
+
+        data.ctrl[lift_actuator_id] = descend_lift_command
+
+        while(
+            windows.is_running()
+            and data.time - down_start_time < down_duration
+        ):
+            mujoco.mj_step(model,data)
+            windows.sync()
+            time.sleep(model.opt.timestep)
+
+        if windows.is_running():
+            down_exit_reason = '阶段计时结束'
+        else:
+            down_exit_reason = '窗口提前关闭'
+
+        mujoco.mj_forward(model,data)
+
+        print(f'下降后升降控制命令:{data.ctrl[lift_actuator_id]:.6f} m')
+        print(f'下降后执行器输出力:{data.actuator_force[lift_actuator_id]:.6f} N')
+        print(f'升降执行器力范围:{model.actuator_forcerange[lift_actuator_id]} N')
+
+        print(f'下降后升降自由度驱动力:{data.qfrc_actuator[lift_dof_id]:.6f} N')
+        print(f'下降后升降动力学偏置项:{data.qfrc_bias[lift_dof_id]:.6f} N')
+        print(f'下降后升降被动力:{data.qfrc_passive[lift_dof_id]:.6f} N')
+        print(f'下降后升降约束力:{data.qfrc_constraint[lift_dof_id]:.6f} N')
+
+        down_lift_after = data.joint('joint_lift').qpos[0]
+        down_lift_speed = data.joint('joint_lift').qvel[0]
+
+        down_left_tip_after = data.xpos[left_rubber_tip_id].copy()
+        down_right_tip_after = data.xpos[right_rubber_tip_id].copy()
+        down_midpoint_after = (down_left_tip_after + down_right_tip_after) / 2
+
+        down_actuator_delta_z = down_midpoint_after[2] - descend_midpoint_start_z
+        down_height_error = down_midpoint_after[2] - grasp_midpoint_z
+
+        down_remaining_xy = blue[:2] - down_midpoint_after[:2]
+        down_remaining_distance = np.linalg.norm(down_remaining_xy)
+
+        down_lift_error = down_lift_after - descend_lift_goal
+        down_elapsed = data.time - down_start_time
+
+        print(f'下降阶段结束原因:{down_exit_reason}')
+        print(f'下降阶段耗时:{down_elapsed}')
+        print(f'下降后升降位置:{down_lift_after:.6f}m')
+        print(f'下降后升降速度:{down_lift_speed:.6f}m/s')
+        print(f'升降关节目标误差:{down_lift_error:.6f}m')
+        print(f'下降后指尖中点:{down_midpoint_after}')
+        print(f'中点实际高度变化:{down_actuator_delta_z:.6f}m')
+        print(f'中点高度误差:{down_height_error:.6f}m')
+        print(f'下降后水平偏差:{down_remaining_xy}m')
+        print(f'下降后水平距离:{down_remaining_distance:.6f}m')
+
     print(f'关闭窗口时间:{data.time}')
     print(f'蓝色坐标:{blue}')
     print(f'红色坐标:{red}')
