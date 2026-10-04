@@ -63,11 +63,18 @@ def main():
         'rubber_tip_right'
     )
 
+    blue_body_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_BODY,
+        'object1'
+    )
+
     link_ids = {
         'link_grasp_center':link_grasp_center_id,
         'base_link':base_body_id,
         'rubber_tip_left':left_rubber_tip_id,
-        'rubber_tip_right':right_rubber_tip_id
+        'rubber_tip_right':right_rubber_tip_id,
+        'object1':blue_body_id
     }
 
     for link_name,link_id in link_ids.items():
@@ -992,6 +999,149 @@ def main():
         print(f'中点高度误差:{down_height_error:.6f}m')
         print(f'下降后水平偏差:{down_remaining_xy}m')
         print(f'下降后水平距离:{down_remaining_distance:.6f}m')
+
+        if not windows.is_running():
+            print('窗口已关闭，不执行夹爪闭合任务')
+            return
+
+        down_ready = (
+            down_exit_reason == '阶段计时结束'
+            and abs(down_height_error) < 0.005
+            and down_remaining_distance < 0.005
+            and abs(down_lift_speed) < 0.001
+        )
+
+        if not down_ready:
+            print('下降未结束，不执行闭合任务')
+            return
+
+        mujoco.mj_forward(model,data)
+
+        close_position_before = data.joint('joint_gripper_slide').qpos[0]
+
+        close_left_before = data.xpos[left_rubber_tip_id].copy()
+        close_right_before = data.xpos[right_rubber_tip_id].copy()
+        close_gap_before = np.linalg.norm(
+            close_left_before - close_right_before
+        )
+
+        close_goal = 0.0
+
+        close_in_range = (
+            gripper_ctrlrange[0] <= close_goal <= gripper_ctrlrange[1]
+        )
+
+        if not close_in_range:
+            raise RuntimeError('夹爪闭合超出范围')
+
+        close_duration = 1.0
+        close_start_time = data.time
+
+        data.ctrl[gripper_id] = close_goal
+
+        while(
+            windows.is_running()
+            and data.time - close_start_time < close_duration
+        ):
+            mujoco.mj_step(model,data)
+            windows.sync()
+            time.sleep(model.opt.timestep)
+
+        if windows.is_running():
+            close_exit_reason = '阶段计时结束'
+        else:
+            close_exit_reason = '窗口提前关闭'
+
+        mujoco.mj_forward(model,data)
+
+        close_position_after = data.joint('joint_gripper_slide').qpos[0]
+
+        close_left_after = data.xpos[left_rubber_tip_id].copy()
+        close_right_after = data.xpos[right_rubber_tip_id].copy()
+        close_gap_after = np.linalg.norm(
+            close_left_after - close_right_after
+        )
+
+        close_position_delta = close_position_after - close_position_before
+        close_gap_delta = close_gap_after - close_gap_before
+        close_error = close_position_after - close_goal
+
+        close_force = data.actuator_force[gripper_id]
+        close_elapsed = data.time - close_start_time
+
+        print(f'闭合阶段结束原因:{close_exit_reason}')
+        print(f'闭合阶段耗时:{close_elapsed:.6f}s')
+        print(f'闭合目标:{close_goal:.6f}m')
+        print(f'闭合后控制命令:{data.ctrl[gripper_id]:.6f}m')
+        print(f'闭合前关节位置:{close_position_before:.6f}m')
+        print(f'闭合后关节位置:{close_position_after:.6f}m')
+        print(f'实际关节变化量:{close_position_delta:.6f}m')
+        print(f'夹爪关节目标误差:{close_error:.6f}m')
+        print(f'闭合前指尖参考点间距:{close_gap_before:.6f}m')
+        print(f'闭合后指尖参考点间距:{close_gap_after:.6f}m')
+        print(f'指尖参考点间距变化:{close_gap_delta:.6f}m')
+        print(f'闭合后执行器输出力:{close_force:.6f}N')
+
+        mujoco.mj_forward(model,data)
+
+        left_contact_forces = []
+        right_contact_forces = []
+
+        contact_force = np.zeros(6, dtype=np.float64)
+        force_threshold = 0.001
+
+        for contact_index in range(data.ncon):
+            contact = data.contact[contact_index]
+
+            body1_id = model.geom_bodyid[contact.geom1]
+            body2_id = model.geom_bodyid[contact.geom2]
+
+            if body1_id == blue_body_id:
+                other_body_id = body2_id
+            elif body2_id == blue_body_id:
+                other_body_id = body1_id
+            else:
+                continue
+
+            if(
+                other_body_id != left_rubber_tip_id
+                and other_body_id != right_rubber_tip_id
+            ):
+                continue
+
+            mujoco.mj_contactForce(
+                model,
+                data,
+                contact_index,
+                contact_force
+            )
+
+            normal_force = float(contact_force[0])
+
+            if other_body_id == left_rubber_tip_id:
+                left_contact_forces.append(normal_force)
+            elif other_body_id == right_rubber_tip_id:
+                right_contact_forces.append(normal_force)
+
+        left_has_contact = (
+            max(left_contact_forces, default=0.0) > force_threshold
+        )
+
+        right_has_contact = (
+            max(right_contact_forces, default=0.0) > force_threshold
+        )
+
+        both_fingers_contact = left_has_contact and right_has_contact
+
+        print(f'左指与蓝色物体的接触记录数:{len(left_contact_forces)}')
+        print(f'左指各接触点法向力:{left_contact_forces} N')
+        print(f'左指是否存在有效目标接触:{left_has_contact}')
+
+        print(f'右指与蓝色物体的接触记录数:{len(right_contact_forces)}')
+        print(f'右指各接触点法向力:{right_contact_forces} N')
+        print(f'右指是否存在有效目标接触:{right_has_contact}')
+
+        print(f'两指是否同时存在有效目标接触:{both_fingers_contact}')
 
     print(f'关闭窗口时间:{data.time}')
     print(f'蓝色坐标:{blue}')
