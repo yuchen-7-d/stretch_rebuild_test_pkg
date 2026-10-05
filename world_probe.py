@@ -1133,6 +1133,10 @@ def main():
 
         both_fingers_contact = left_has_contact and right_has_contact
 
+        if not both_fingers_contact:
+            print('未满足双侧目标接触，不执行试抬')
+            return
+
         print(f'左指与蓝色物体的接触记录数:{len(left_contact_forces)}')
         print(f'左指各接触点法向力:{left_contact_forces} N')
         print(f'左指是否存在有效目标接触:{left_has_contact}')
@@ -1142,6 +1146,210 @@ def main():
         print(f'右指是否存在有效目标接触:{right_has_contact}')
 
         print(f'两指是否同时存在有效目标接触:{both_fingers_contact}')
+
+        if not windows.is_running():
+            print('窗口已关闭，不执行试抬')
+            return
+
+        if close_exit_reason != '阶段计时结束':
+            print('闭合阶段未正常完成，不执行试抬')
+            return
+
+        mujoco.mj_forward(model,data)
+
+        lift_test_joint_start = data.joint('joint_lift').qpos[0]
+
+        lift_test_object_before = data.xpos[blue_body_id].copy()
+
+        lift_test_left_before = data.xpos[left_rubber_tip_id].copy()
+        lift_test_right_before = data.xpos[right_rubber_tip_id].copy()
+        lift_test_midpoint_before = (
+            (lift_test_left_before + lift_test_right_before) / 2
+        )
+
+        lift_test_delta = 0.05
+        lift_test_compensation = 0.0229
+
+        lift_test_goal = lift_test_joint_start + lift_test_delta
+        lift_test_command = lift_test_goal + lift_test_compensation
+
+        lift_test_goal_in_range = (
+            lift_ctrlrange[0] <= lift_test_goal <= lift_ctrlrange[1]
+        )
+
+        lift_test_command_in_range = (
+            lift_ctrlrange[0] <= lift_test_command <= lift_ctrlrange[1]
+        )
+
+        if not (
+            lift_test_goal_in_range
+            and lift_test_command_in_range
+        ):
+            raise RuntimeError('试抬目标超出范围')
+
+        print(f'试抬前升降位置:{lift_test_joint_start:.6f}m')
+        print(f'试抬前物体世界坐标:{lift_test_object_before}')
+        print(f'试抬前物体坐标形状:{lift_test_object_before.shape}')
+        print(f'试抬前指尖中点:{lift_test_midpoint_before}')
+        print(f'试抬前指尖中点形状:{lift_test_midpoint_before.shape}')
+        print(f'计划试抬增加量:{lift_test_delta:.6f}m')
+        print(f'试抬关节目标:{lift_test_goal:.6f}m')
+        print(f'试抬控制命令:{lift_test_command:.6f}m')
+        print(f'试抬目标是否在范围内:{lift_test_goal_in_range}')
+        print(f'试抬命令是否在范围内:{lift_test_command_in_range}')
+
+        if not windows.is_running():
+            print('试抬计划未结束，不执行试抬')
+            return
+
+        data.ctrl[lift_actuator_id] = lift_test_command
+
+        lift_test_duration = 3.0
+        lift_test_start_time = data.time
+
+        while(
+            windows.is_running()
+            and data.time - lift_test_start_time < lift_test_duration
+        ):
+            mujoco.mj_step(model,data)
+            windows.sync()
+            time.sleep(model.opt.timestep)
+
+        if windows.is_running():
+            lift_test_exit_reason = '阶段计时结束'
+        else:
+            lift_test_exit_reason = '窗口提前关闭'
+
+        mujoco.mj_forward(model,data)
+
+        lift_test_joint_after = data.joint('joint_lift').qpos[0]
+        lift_test_joint_speed = data.joint('joint_lift').qvel[0]
+
+        lift_test_object_after = data.xpos[blue_body_id].copy()
+
+        lift_test_left_after = data.xpos[left_rubber_tip_id].copy()
+        lift_test_right_after = data.xpos[right_rubber_tip_id].copy()
+        lift_test_midpoint_after = (
+            (lift_test_left_after + lift_test_right_after) / 2
+        )
+
+        lift_test_joint_delta = lift_test_joint_after - lift_test_joint_start
+        lift_test_joint_error = lift_test_joint_after -lift_test_goal
+        lift_test_object_rise = lift_test_object_after[2] - lift_test_object_before[2]
+        lift_test_midpoint_rise = lift_test_midpoint_after[2] - lift_test_midpoint_before[2]
+        lift_test_elapsed = data.time - lift_test_start_time
+
+        print(f'试抬结束原因:{lift_test_exit_reason}')
+        print(f'试抬耗时:{lift_test_elapsed:.6f}s')
+        print(f'升降关节实际增加量:{lift_test_joint_delta:.6f}m')
+        print(f'升降关节目标误差:{lift_test_joint_error:.6f}m')
+        print(f'试抬后升降速度:{lift_test_joint_speed:.6f}m/s')
+        print(f'试抬后物体世界坐标:{lift_test_object_after}')
+        print(f'物体实际上升量:{lift_test_object_rise:.6f}m')
+        print(f'指尖中点实际上升量:{lift_test_midpoint_rise:.6f}m')
+
+        if(
+            lift_test_exit_reason != '阶段计时结束'
+            or not windows.is_running()
+        ):
+            print('试抬中断或窗口关闭，不执行保持阶段')
+            return
+
+        hold_duration = 1.0
+        hold_start_time = data.time
+
+        while(
+            windows.is_running()
+            and data.time - hold_start_time < hold_duration 
+        ):
+            mujoco.mj_step(model,data)
+            windows.sync()
+            time.sleep(model.opt.timestep)
+
+        if windows.is_running():
+            hold_exit_reason = '阶段计时结束'
+        else:
+            hold_exit_reason = '窗口提前关闭'
+
+        mujoco.mj_forward(model,data)
+
+        hold_object_after = data.xpos[blue_body_id].copy()
+
+        hold_drop = lift_test_object_after[2] - hold_object_after[2]
+        hold_object_rise = hold_object_after[2] - lift_test_object_before[2]
+        hold_elapsed = data.time - hold_start_time
+
+        print(f'保持阶段结束原因:{hold_exit_reason}')
+        print(f'保持阶段耗时:{hold_elapsed:.6f}s')
+        print(f'保持后物体世界坐标:{hold_object_after}')
+        print(f'保持前后物体下降量:{hold_drop:.6f}m')
+        print(f'保持后物体相对初始上升量:{hold_object_rise:.6f}m')
+
+        hold_left_contact_forces = []
+        hold_right_contact_forces = []
+
+        hold_contact_force = np.zeros(6, dtype=np.float64)
+
+        for hold_contact_index in range(data.ncon):
+            hold_contact = data.contact[hold_contact_index]
+
+            hold_body1_id = model.geom_bodyid[hold_contact.geom1]
+            hold_body2_id = model.geom_bodyid[hold_contact.geom2]
+
+            if hold_body1_id == blue_body_id:
+                other_hold_body_id = hold_body2_id
+            elif hold_body2_id == blue_body_id:
+                other_hold_body_id = hold_body1_id
+            else:
+                continue
+
+            if(
+                other_hold_body_id != left_rubber_tip_id
+                and other_hold_body_id != right_rubber_tip_id
+            ):
+                continue
+
+            mujoco.mj_contactForce(
+                model,
+                data,
+                hold_contact_index,
+                hold_contact_force
+            )
+
+            normal_hold_force = float(hold_contact_force[0])
+
+            if other_hold_body_id == left_rubber_tip_id:
+                hold_left_contact_forces.append(normal_hold_force)
+            elif other_hold_body_id == right_rubber_tip_id:
+                hold_right_contact_forces.append(normal_hold_force)
+
+        hold_left_has_contact = (
+            max(hold_left_contact_forces, default=0.0) > force_threshold
+        )
+
+        hold_right_has_contact = (
+            max(hold_right_contact_forces, default=0.0) > force_threshold
+        )
+
+        hold_both_fingers_contact = (
+            hold_left_has_contact
+            and hold_right_has_contact
+        )
+
+        lift_test_passed = (
+            lift_test_exit_reason == '阶段计时结束'
+            and hold_exit_reason == '阶段计时结束'
+            and hold_object_rise >= 0.03
+            and hold_drop <= 0.005
+            and hold_both_fingers_contact
+        )
+
+        print(f'保持后左指各接触点法向力:{hold_left_contact_forces} N')
+        print(f'保持后右指各接触点法向力:{hold_right_contact_forces} N')
+        print(f'保持后左指有效接触:{hold_left_has_contact}')
+        print(f'保持后右指有效接触:{hold_right_has_contact}')
+        print(f'保持后双侧有效接触:{hold_both_fingers_contact}')
+        print(f'本次试抬与保持是否通过:{lift_test_passed}')
 
     print(f'关闭窗口时间:{data.time}')
     print(f'蓝色坐标:{blue}')
