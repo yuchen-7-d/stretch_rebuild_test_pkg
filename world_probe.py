@@ -6,10 +6,25 @@ import time
 
 
 def main():
-    load_point_path = Path('/home/yu/stretch_rebuild/saved_picture/target_points.npz')
+
+    target_color = input('请选择抓取颜色:(red/blue):').strip().lower()
+
+    if target_color not in('blue','red'):
+        raise RuntimeError(f'不支持的颜色:{target_color}')
+
+    load_point_path = Path(
+        '/home/yu/stretch_rebuild/saved_picture/target_points.npz'
+    )
+
     with np.load(load_point_path) as points:
         blue = points['blue']
         red = points['red']
+
+        target_point = points[target_color]
+
+    print(f'选择的颜色:{target_color}')
+    print(f'目标世界坐标:{target_point}')
+    print(f'目标坐标形状:{target_point.shape}')
 
     camera_probe_path = Path(
         "/home/yu/stretch_projects/stretch_mujoco/"
@@ -63,10 +78,15 @@ def main():
         'rubber_tip_right'
     )
 
-    blue_body_id = mujoco.mj_name2id(
+    if target_color == 'blue':
+        target_body_name = 'object1'
+    else:
+        target_body_name = 'object2'
+
+    target_body_id = mujoco.mj_name2id(
         model,
         mujoco.mjtObj.mjOBJ_BODY,
-        'object1'
+        target_body_name
     )
 
     link_ids = {
@@ -74,7 +94,7 @@ def main():
         'base_link':base_body_id,
         'rubber_tip_left':left_rubber_tip_id,
         'rubber_tip_right':right_rubber_tip_id,
-        'object1':blue_body_id
+        target_body_name:target_body_id
     }
 
     for link_name,link_id in link_ids.items():
@@ -87,19 +107,19 @@ def main():
     print(f'世界坐标:{world_link}')
     print(f'世界坐标形状:{world_link.shape}')
 
-    blue_offset = blue - world_link
-    blue_distance = np.linalg.norm(blue_offset)
-    recovered_point = blue_offset + world_link
+    target_offset = target_point - world_link
+    target_distance = np.linalg.norm(target_offset)
+    recovered_point = target_offset + world_link
     direction_ok = np.allclose(
         recovered_point,
-        blue,
+        target_point,
         rtol=0.0,
         atol=1e-9
     )
 
-    print(f'夹爪到蓝色目标的位移:{blue_offset}m')
-    print(f'位移数组形状:{blue_offset.shape}')
-    print(f'夹爪到蓝色目标的直线距离:{blue_distance:.6f}m')
+    print(f'夹爪到目标的位移:{target_offset}m')
+    print(f'位移数组形状:{target_offset.shape}')
+    print(f'夹爪到目标的直线距离:{target_distance:.6f}m')
     print(f'位移方向检查:{direction_ok}')
 
     lift_actuator_id = mujoco.mj_name2id(
@@ -292,10 +312,10 @@ def main():
         lift_before = data.joint('joint_lift').qpos[0]
         grasp_before = data.xpos[link_grasp_center_id].copy()
 
-        blue_z = blue[2]
+        target_z = target_point[2]
         current_grasp_z = grasp_before[2]
 
-        pregrasp_z = blue_z + pregrasp_margin
+        pregrasp_z = target_z + pregrasp_margin
         height_gap = pregrasp_z - current_grasp_z
 
         candidate_lift_goal = lift_before + height_gap
@@ -304,7 +324,7 @@ def main():
         candidate_goal_in_range = lift_ctrlrange[0] <= candidate_lift_goal <= lift_ctrlrange[1]
         candidate_command_in_range = lift_ctrlrange[0] <= candidate_lift_command <= lift_ctrlrange[1]
 
-        print(f'蓝色视觉点高度:{blue_z:.6f} m')
+        print(f'目标视觉点高度:{target_z:.6f} m')
         print(f'准备高度:{pregrasp_z:.6f} m')
         print(f'当前夹爪高度:{current_grasp_z:.6f} m')
         print(f'需要增加的高度:{height_gap:.6f} m')
@@ -353,12 +373,12 @@ def main():
         lift_after = data.joint('joint_lift').qpos[0]
         grasp_after = data.xpos[link_grasp_center_id].copy()
 
-        remaining_offset = blue - grasp_after
+        remaining_offset = target_point - grasp_after
         horizontal_offset = remaining_offset[:2]
         horizontal_distance = np.linalg.norm(horizontal_offset)
 
         print(f'最终夹爪世界坐标:{grasp_after}')
-        print(f'到蓝色目标的三维位移:{remaining_offset}')
+        print(f'到目标的三维位移:{remaining_offset}')
         print(f'三维位移形状;{remaining_offset.shape}')
         print(f'水平位移:{horizontal_offset}m')
         print(f'水平位移形状:{horizontal_offset.shape}')
@@ -483,7 +503,7 @@ def main():
         approach_arm_error = approach_arm_after - approach_arm_goal
 
         approach_actual_xy_move = approach_grasp_after[:2] - approach_grasp_before[:2]
-        approach_remaining_xy = blue[:2] - approach_grasp_after[:2]
+        approach_remaining_xy = target_point[:2] - approach_grasp_after[:2]
         approach_remaining_distance = np.linalg.norm(approach_remaining_xy)
 
         approach_height_error = approach_grasp_after[2] - pregrasp_z
@@ -533,7 +553,7 @@ def main():
         print(f'底座移动后预计剩余偏差:{base_remaining_xy}m')
         print(f'底座移动后预计剩余距离:{base_remaining_distance:.6f}m')
 
-        base_speed = 0.02
+        base_speed = 0.05
         wheel_radius = 0.05
 
         wheel_angular_speed = base_speed / wheel_radius
@@ -694,7 +714,7 @@ def main():
 
         grasp_after_stop = data.xpos[link_grasp_center_id].copy()
 
-        finnal_horizontal_offset = blue[:2] - grasp_after_stop[:2]
+        finnal_horizontal_offset = target_point[:2] - grasp_after_stop[:2]
         finnal_horizontal_distance = np.linalg.norm(finnal_horizontal_offset)
         finnal_height_error = grasp_after_stop[2] - pregrasp_z
 
@@ -791,16 +811,16 @@ def main():
 
         tip_midpoint_offset = tip_midpoint - grasp_reference_now
 
-        tip_height_above_blue = tip_midpoint[2] - blue[2]
+        tip_height_above_target = tip_midpoint[2] - target_point[2]
 
         print(f'张开口左指参考点:{left_tip_after}')
         print(f'张开口右指参考点:{right_tip_after}')
         print(f'两指间参考中点:{tip_midpoint}')
         print(f'中点形状:{tip_midpoint.shape}')
         print(f'中点相对夹爪参考点的偏移:{tip_midpoint_offset}')
-        print(f'中点高出蓝色视觉点:{tip_height_above_blue}')
+        print(f'中点高出目标视觉点:{tip_height_above_target}')
 
-        fine_offset_xy = blue[:2] - tip_midpoint[:2]
+        fine_offset_xy = target_point[:2] - tip_midpoint[:2]
 
         fine_axis_xy = data.xaxis[arm_joint_id][:2].copy()
         fine_axis_squared = np.dot(fine_axis_xy, fine_axis_xy)
@@ -878,7 +898,7 @@ def main():
         fine_actual_delta = fine_arm_after - fine_arm_start
         fine_arm_error = fine_arm_after - fine_arm_goal
 
-        fine_actual_remaining_xy = blue[:2] - fine_midpoint_after[:2]
+        fine_actual_remaining_xy = target_point[:2] - fine_midpoint_after[:2]
         fine_actual_remaining_distance = np.linalg.norm(fine_actual_remaining_xy)
 
         fine_height_change = fine_midpoint_after[2] - fine_midpoint_before[2]
@@ -895,7 +915,7 @@ def main():
         print(f'微调期间中点高度变化:{fine_height_change}')
 
         grasp_depth = 0.02
-        grasp_midpoint_z =blue[2] - grasp_depth
+        grasp_midpoint_z = target_point[2] - grasp_depth
 
         descend_midpoint_start_z = fine_midpoint_after[2]
         descend_delta_z = grasp_midpoint_z - descend_midpoint_start_z
@@ -983,7 +1003,7 @@ def main():
         down_actuator_delta_z = down_midpoint_after[2] - descend_midpoint_start_z
         down_height_error = down_midpoint_after[2] - grasp_midpoint_z
 
-        down_remaining_xy = blue[:2] - down_midpoint_after[:2]
+        down_remaining_xy = target_point[:2] - down_midpoint_after[:2]
         down_remaining_distance = np.linalg.norm(down_remaining_xy)
 
         down_lift_error = down_lift_after - descend_lift_goal
@@ -1025,7 +1045,11 @@ def main():
             close_left_before - close_right_before
         )
 
-        close_goal = 0.0
+
+        if target_color == 'red':
+            close_goal = -0.005
+        else:
+            close_goal = 0.0
 
         close_in_range = (
             gripper_ctrlrange[0] <= close_goal <= gripper_ctrlrange[1]
@@ -1096,9 +1120,9 @@ def main():
             body1_id = model.geom_bodyid[contact.geom1]
             body2_id = model.geom_bodyid[contact.geom2]
 
-            if body1_id == blue_body_id:
+            if body1_id == target_body_id:
                 other_body_id = body2_id
-            elif body2_id == blue_body_id:
+            elif body2_id == target_body_id:
                 other_body_id = body1_id
             else:
                 continue
@@ -1133,19 +1157,19 @@ def main():
 
         both_fingers_contact = left_has_contact and right_has_contact
 
-        if not both_fingers_contact:
-            print('未满足双侧目标接触，不执行试抬')
-            return
-
-        print(f'左指与蓝色物体的接触记录数:{len(left_contact_forces)}')
+        print(f'左指与目标物体的接触记录数:{len(left_contact_forces)}')
         print(f'左指各接触点法向力:{left_contact_forces} N')
         print(f'左指是否存在有效目标接触:{left_has_contact}')
 
-        print(f'右指与蓝色物体的接触记录数:{len(right_contact_forces)}')
+        print(f'右指与目标物体的接触记录数:{len(right_contact_forces)}')
         print(f'右指各接触点法向力:{right_contact_forces} N')
         print(f'右指是否存在有效目标接触:{right_has_contact}')
 
         print(f'两指是否同时存在有效目标接触:{both_fingers_contact}')
+
+        if not both_fingers_contact:
+            print('未满足双侧目标接触，不执行试抬')
+            return
 
         if not windows.is_running():
             print('窗口已关闭，不执行试抬')
@@ -1159,7 +1183,7 @@ def main():
 
         lift_test_joint_start = data.joint('joint_lift').qpos[0]
 
-        lift_test_object_before = data.xpos[blue_body_id].copy()
+        lift_test_object_before = data.xpos[target_body_id].copy()
 
         lift_test_left_before = data.xpos[left_rubber_tip_id].copy()
         lift_test_right_before = data.xpos[right_rubber_tip_id].copy()
@@ -1225,7 +1249,7 @@ def main():
         lift_test_joint_after = data.joint('joint_lift').qpos[0]
         lift_test_joint_speed = data.joint('joint_lift').qvel[0]
 
-        lift_test_object_after = data.xpos[blue_body_id].copy()
+        lift_test_object_after = data.xpos[target_body_id].copy()
 
         lift_test_left_after = data.xpos[left_rubber_tip_id].copy()
         lift_test_right_after = data.xpos[right_rubber_tip_id].copy()
@@ -1273,7 +1297,7 @@ def main():
 
         mujoco.mj_forward(model,data)
 
-        hold_object_after = data.xpos[blue_body_id].copy()
+        hold_object_after = data.xpos[target_body_id].copy()
 
         hold_drop = lift_test_object_after[2] - hold_object_after[2]
         hold_object_rise = hold_object_after[2] - lift_test_object_before[2]
@@ -1296,9 +1320,9 @@ def main():
             hold_body1_id = model.geom_bodyid[hold_contact.geom1]
             hold_body2_id = model.geom_bodyid[hold_contact.geom2]
 
-            if hold_body1_id == blue_body_id:
+            if hold_body1_id == target_body_id:
                 other_hold_body_id = hold_body2_id
-            elif hold_body2_id == blue_body_id:
+            elif hold_body2_id == target_body_id:
                 other_hold_body_id = hold_body1_id
             else:
                 continue
@@ -1352,10 +1376,6 @@ def main():
         print(f'本次试抬与保持是否通过:{lift_test_passed}')
 
     print(f'关闭窗口时间:{data.time}')
-    print(f'蓝色坐标:{blue}')
-    print(f'红色坐标:{red}')
-    print(f'蓝色坐标形状:{blue.shape}')
-    print(f'红色坐标形状:{red.shape}')
 
 
 if __name__ == '__main__':
